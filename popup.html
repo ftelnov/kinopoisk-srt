@@ -5,19 +5,14 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      width: 320px;
+      width: 340px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 13px;
       color: #e0e0e0;
       background: #1a1a2e;
       padding: 16px;
     }
-    h2 {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 12px;
-      color: #fff;
-    }
+    h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #fff; }
     .section {
       margin-bottom: 14px;
       padding-bottom: 14px;
@@ -72,7 +67,7 @@
       transition: background 0.15s;
     }
     .sync-controls button:hover { background: #3a3a5a; }
-    .sync-value {
+    input.sync-value {
       flex: 1;
       text-align: center;
       font-family: monospace;
@@ -85,10 +80,108 @@
       width: 70px;
       min-width: 0;
     }
-    .sync-value:focus {
+    input.sync-value:focus {
       outline: none;
       border-color: #6c63ff;
     }
+    .rate-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .rate-row input {
+      flex: 1;
+      font-family: monospace;
+      font-size: 13px;
+      color: #fff;
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+      padding: 5px 8px;
+      text-align: center;
+    }
+    .rate-row input:focus { outline: none; border-color: #6c63ff; }
+    .rate-presets {
+      display: flex;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .rate-presets button {
+      flex: 1;
+      background: #2a2a4a;
+      color: #aaa;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+      padding: 3px 4px;
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .rate-presets button:hover { background: #3a3a5a; color: #fff; }
+    .calibration {
+      background: #222244;
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 8px;
+    }
+    .calibration .hint {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .cal-point {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .cal-point .cal-label {
+      color: #999;
+      width: 16px;
+      text-align: center;
+      font-weight: 600;
+    }
+    .cal-point .cal-time {
+      font-family: monospace;
+      color: #6c63ff;
+      font-size: 12px;
+      min-width: 50px;
+    }
+    .cal-point button {
+      background: #3a3a5a;
+      color: #e0e0e0;
+      border: 1px solid #4a4a6a;
+      border-radius: 4px;
+      padding: 3px 8px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .cal-point button:hover { background: #4a4a6a; }
+    .cal-cue {
+      font-size: 11px;
+      color: #ccc;
+      margin-left: 22px;
+      margin-bottom: 6px;
+      max-height: 32px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cal-arrows {
+      display: flex;
+      gap: 4px;
+    }
+    .cal-arrows button {
+      background: #2a2a4a;
+      color: #e0e0e0;
+      border: 1px solid #3a3a5a;
+      border-radius: 3px;
+      padding: 2px 6px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .cal-arrows button:hover { background: #3a3a5a; }
     .btn-row {
       display: flex;
       gap: 8px;
@@ -106,6 +199,12 @@
     .btn-row button:hover { background: #3a3a5a; }
     .btn-danger { color: #f44336 !important; border-color: #5a2a2a !important; }
     .btn-danger:hover { background: #3a1a1a !important; }
+    .btn-apply {
+      background: #3a3a6a !important;
+      color: #8c83ff !important;
+      border-color: #5a5a8a !important;
+    }
+    .btn-apply:hover { background: #4a4a7a !important; }
     select {
       width: 100%;
       background: #2a2a4a;
@@ -158,6 +257,46 @@
       <input type="text" class="sync-value" id="syncValue" value="0.0s">
       <button id="syncFwd">+0.5s</button>
       <button id="syncFwd1s">+1s</button>
+    </div>
+
+    <label style="margin-top: 10px">Rate</label>
+    <div class="rate-row">
+      <input type="text" id="rateValue" value="1.000000">
+    </div>
+    <div class="rate-presets">
+      <button data-rate="1.000000">1:1</button>
+      <button data-rate="0.959041">25→23.976</button>
+      <button data-rate="1.042709">23.976→25</button>
+    </div>
+
+    <div class="calibration">
+      <div class="hint">
+        Two-point calibration: pause at a recognizable line, mark point A.
+        Then go to a later line and mark point B. Picks the nearest SRT cue.
+      </div>
+      <div class="cal-point">
+        <span class="cal-label">A</span>
+        <span class="cal-time" id="calATime">—</span>
+        <button id="calABtn">Mark A here</button>
+        <div class="cal-arrows">
+          <button class="cal-nudge" data-point="A" data-dir="-1">◀</button>
+          <button class="cal-nudge" data-point="A" data-dir="1">▶</button>
+        </div>
+      </div>
+      <div class="cal-cue" id="calACue"></div>
+      <div class="cal-point">
+        <span class="cal-label">B</span>
+        <span class="cal-time" id="calBTime">—</span>
+        <button id="calBBtn">Mark B here</button>
+        <div class="cal-arrows">
+          <button class="cal-nudge" data-point="B" data-dir="-1">◀</button>
+          <button class="cal-nudge" data-point="B" data-dir="1">▶</button>
+        </div>
+      </div>
+      <div class="cal-cue" id="calBCue"></div>
+      <div class="btn-row" style="margin-top: 8px">
+        <button id="calApply" class="btn-apply">Apply calibration</button>
+      </div>
     </div>
   </div>
 

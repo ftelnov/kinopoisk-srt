@@ -6,6 +6,7 @@
   let textEl = null;
   let subtitles = [];
   let syncOffsetMs = 0;
+  let syncRate = 1.0; // multiplier: srtTime = videoTime * syncRate + syncOffsetMs
   let lastDisplayedIndex = -1;
   let pollTimer = null;
 
@@ -90,7 +91,6 @@
   function attachOverlay() {
     if (!video || !overlay) return;
 
-    // Find the best container: Kinopoisk player wrapper or video parent
     const container =
       video.closest('[data-tid="ContentPlayerBody"]') ||
       video.closest('[class*="PlayerSkin_layout"]') ||
@@ -99,7 +99,6 @@
 
     if (!container) return;
 
-    // Ensure container is positioned
     const pos = getComputedStyle(container).position;
     if (pos === "static" || pos === "") {
       container.style.position = "relative";
@@ -110,21 +109,25 @@
     }
   }
 
+  // --- Core: map video time to SRT time ---
+
+  function videoToSrtMs(videoMs) {
+    return videoMs * syncRate + syncOffsetMs;
+  }
+
   // --- Subtitle display loop ---
 
   function onTimeUpdate() {
     if (!video || subtitles.length === 0) return;
 
-    const currentMs = video.currentTime * 1000 + syncOffsetMs;
+    const srtMs = videoToSrtMs(video.currentTime * 1000);
 
-    // Binary search for current subtitle
-    const idx = findCueAt(currentMs);
+    const idx = findCueAt(srtMs);
 
     if (idx === lastDisplayedIndex) return;
     lastDisplayedIndex = idx;
 
     if (idx !== -1) {
-      // Replace \n with <br> but keep a space so textContent doesn't merge words
       textEl.innerHTML = escapeHTML(subtitles[idx].text).replace(/\n/g, " <br>");
     } else {
       textEl.innerHTML = "";
@@ -154,39 +157,51 @@
     return el.innerHTML;
   }
 
+  // --- Sync helpers ---
+
+  function persistSync() {
+    chrome.storage.local.set({ kso_offset: syncOffsetMs, kso_rate: syncRate });
+  }
+
+  function getFullStatus() {
+    return {
+      videoFound: !!video,
+      subtitleCount: subtitles.length,
+      offset: syncOffsetMs,
+      rate: syncRate,
+      videoTime: video ? video.currentTime * 1000 : 0,
+    };
+  }
+
   // --- Video detection ---
+
+  function bindVideo(v) {
+    v.addEventListener("timeupdate", onTimeUpdate);
+    v.addEventListener("seeking", () => {
+      lastDisplayedIndex = -2;
+      if (textEl) textEl.innerHTML = "";
+    });
+    v.addEventListener("seeked", onTimeUpdate);
+  }
 
   function findVideo() {
     video = document.querySelector("video");
     if (video) {
       clearInterval(pollTimer);
       pollTimer = null;
-      video.addEventListener("timeupdate", onTimeUpdate);
-      video.addEventListener("seeking", () => {
-        // Clear immediately so stale text doesn't linger during seek
-        lastDisplayedIndex = -2; // sentinel: force update on next timeupdate
-        if (textEl) textEl.innerHTML = "";
-      });
-      video.addEventListener("seeked", onTimeUpdate);
+      bindVideo(video);
       attachOverlay();
 
-      // Re-attach on fullscreen changes
       document.addEventListener("fullscreenchange", () => {
         setTimeout(attachOverlay, 300);
       });
 
-      // Watch for video element replacement (Kinopoisk SPA navigation)
       const observer = new MutationObserver(() => {
         const newVideo = document.querySelector("video");
         if (newVideo && newVideo !== video) {
           video.removeEventListener("timeupdate", onTimeUpdate);
           video = newVideo;
-          video.addEventListener("timeupdate", onTimeUpdate);
-          video.addEventListener("seeking", () => {
-            lastDisplayedIndex = -2;
-            if (textEl) textEl.innerHTML = "";
-          });
-          video.addEventListener("seeked", onTimeUpdate);
+          bindVideo(video);
           lastDisplayedIndex = -2;
           attachOverlay();
         }
@@ -206,49 +221,87 @@
         subtitles = parseSRT(msg.data);
         lastDisplayedIndex = -1;
         syncOffsetMs = 0;
+        syncRate = 1.0;
 
-        // Save to storage for auto-restore
         chrome.storage.local.set({
           kso_srt: msg.data,
           kso_filename: msg.filename,
         });
+        persistSync();
 
-        sendResponse({
-          ok: true,
-          count: subtitles.length,
-        });
+        sendResponse({ ok: true, count: subtitles.length });
         break;
       }
 
       case "sync_offset": {
         syncOffsetMs += msg.delta;
         lastDisplayedIndex = -2;
+        persistSync();
         onTimeUpdate();
-        sendResponse({ offset: syncOffsetMs });
+        sendResponse(getFullStatus());
         break;
       }
 
       case "set_sync": {
         syncOffsetMs = msg.offset;
         lastDisplayedIndex = -2;
+        persistSync();
         onTimeUpdate();
-        sendResponse({ offset: syncOffsetMs });
+        sendResponse(getFullStatus());
         break;
       }
 
-      case "reset_sync": {
-        syncOffsetMs = 0;
-        lastDisplayedIndex = -1;
-        sendResponse({ offset: 0 });
+      case "set_rate": {
+        syncRate = msg.rate;
+        lastDisplayedIndex = -2;
+        persistSync();
+        onTimeUpdate();
+        sendResponse(getFullStatus());
+        break;
+      }
+
+      // Two-point calibration: user provides two (videoTimeMs, srtTimeMs) pairs
+      // We solve: srtTime = videoTime * rate + offset
+      case "calibrate": {
+        const { pointA, pointB } = msg;
+        // pointA/B: { videoMs, srtMs }
+        if (pointA && pointB && pointA.videoMs !== pointB.videoMs) {
+          syncRate =
+            (pointB.srtMs - pointA.srtMs) / (pointB.videoMs - pointA.videoMs);
+          syncOffsetMs = pointA.srtMs - pointA.videoMs * syncRate;
+        } else if (pointA) {
+          // Single point: keep current rate, adjust offset
+          syncOffsetMs = pointA.srtMs - pointA.videoMs * syncRate;
+        }
+        lastDisplayedIndex = -2;
+        persistSync();
+        onTimeUpdate();
+        sendResponse(getFullStatus());
         break;
       }
 
       case "get_status": {
-        sendResponse({
-          videoFound: !!video,
-          subtitleCount: subtitles.length,
-          offset: syncOffsetMs,
-        });
+        sendResponse(getFullStatus());
+        break;
+      }
+
+      // Get the SRT cue nearest to the current mapped time (for calibration UI)
+      case "get_nearby_cues": {
+        const srtMs = videoToSrtMs(video ? video.currentTime * 1000 : 0);
+        const nearby = [];
+        for (let i = 0; i < subtitles.length; i++) {
+          const dist = Math.abs((subtitles[i].start + subtitles[i].end) / 2 - srtMs);
+          if (dist < 30000) {
+            nearby.push({
+              index: i,
+              start: subtitles[i].start,
+              end: subtitles[i].end,
+              text: subtitles[i].text.slice(0, 80),
+            });
+          }
+        }
+        nearby.sort((a, b) => Math.abs((a.start + a.end) / 2 - srtMs) - Math.abs((b.start + b.end) / 2 - srtMs));
+        sendResponse({ cues: nearby.slice(0, 10), currentSrtMs: srtMs });
         break;
       }
 
@@ -256,8 +309,9 @@
         subtitles = [];
         lastDisplayedIndex = -1;
         syncOffsetMs = 0;
+        syncRate = 1.0;
         if (textEl) textEl.innerHTML = "";
-        chrome.storage.local.remove(["kso_srt", "kso_filename"]);
+        chrome.storage.local.remove(["kso_srt", "kso_filename", "kso_offset", "kso_rate"]);
         sendResponse({ ok: true });
         break;
       }
@@ -278,10 +332,10 @@
         break;
       }
     }
-    return true; // async sendResponse
+    return true;
   });
 
-  // --- Window event listener (for external injection, e.g. Puppeteer tests) ---
+  // --- Window event listeners (for external control / Puppeteer tests) ---
 
   window.addEventListener("kso-load-srt", (e) => {
     const { data, filename } = e.detail || {};
@@ -289,11 +343,37 @@
     subtitles = parseSRT(data);
     lastDisplayedIndex = -1;
     syncOffsetMs = 0;
+    syncRate = 1.0;
     chrome.storage.local.set({ kso_srt: data, kso_filename: filename });
+    persistSync();
     console.log("[KSO] Loaded", subtitles.length, "cues via window event");
     window.dispatchEvent(
       new CustomEvent("kso-srt-loaded", { detail: { count: subtitles.length } })
     );
+  });
+
+  window.addEventListener("kso-set-sync", (e) => {
+    const { offset, rate } = e.detail || {};
+    if (typeof offset === "number") syncOffsetMs = offset;
+    if (typeof rate === "number") syncRate = rate;
+    lastDisplayedIndex = -2;
+    persistSync();
+    onTimeUpdate();
+    window.dispatchEvent(new CustomEvent("kso-sync-updated", { detail: getFullStatus() }));
+  });
+
+  window.addEventListener("kso-calibrate", (e) => {
+    const { pointA, pointB } = e.detail || {};
+    if (pointA && pointB && pointA.videoMs !== pointB.videoMs) {
+      syncRate = (pointB.srtMs - pointA.srtMs) / (pointB.videoMs - pointA.videoMs);
+      syncOffsetMs = pointA.srtMs - pointA.videoMs * syncRate;
+    } else if (pointA) {
+      syncOffsetMs = pointA.srtMs - pointA.videoMs * syncRate;
+    }
+    lastDisplayedIndex = -2;
+    persistSync();
+    onTimeUpdate();
+    window.dispatchEvent(new CustomEvent("kso-sync-updated", { detail: getFullStatus() }));
   });
 
   // --- Init ---
@@ -301,27 +381,26 @@
   function init() {
     createOverlay();
 
-    // Auto-restore saved subtitles
-    chrome.storage.local.get(["kso_srt"], (result) => {
+    // Restore saved state
+    chrome.storage.local.get(["kso_srt", "kso_offset", "kso_rate"], (result) => {
       if (result.kso_srt) {
         subtitles = parseSRT(result.kso_srt);
-        console.log("[KSO] Restored", subtitles.length, "subtitles from storage");
+        console.log("[KSO] Restored", subtitles.length, "subtitles");
       }
+      if (typeof result.kso_offset === "number") syncOffsetMs = result.kso_offset;
+      if (typeof result.kso_rate === "number") syncRate = result.kso_rate;
     });
 
-    // Start polling for video
     findVideo();
     if (!video) {
       pollTimer = setInterval(findVideo, 500);
     }
   }
 
-  // Kinopoisk is an SPA — watch for navigation
   let lastUrl = location.href;
   new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      // Re-find video after SPA navigation
       if (!pollTimer) {
         video = null;
         pollTimer = setInterval(findVideo, 500);
