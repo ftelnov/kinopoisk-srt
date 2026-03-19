@@ -222,7 +222,16 @@
 
       case "sync_offset": {
         syncOffsetMs += msg.delta;
-        lastDisplayedIndex = -1;
+        lastDisplayedIndex = -2;
+        onTimeUpdate();
+        sendResponse({ offset: syncOffsetMs });
+        break;
+      }
+
+      case "set_sync": {
+        syncOffsetMs = msg.offset;
+        lastDisplayedIndex = -2;
+        onTimeUpdate();
         sendResponse({ offset: syncOffsetMs });
         break;
       }

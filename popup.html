@@ -78,6 +78,16 @@
       font-family: monospace;
       font-size: 14px;
       color: #fff;
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 4px;
+      padding: 4px 2px;
+      width: 70px;
+      min-width: 0;
+    }
+    .sync-value:focus {
+      outline: none;
+      border-color: #6c63ff;
     }
     .btn-row {
       display: flex;
@@ -145,7 +155,7 @@
     <div class="sync-controls">
       <button id="syncBack1s">-1s</button>
       <button id="syncBack">-0.5s</button>
-      <span class="sync-value" id="syncValue">0.0s</span>
+      <input type="text" class="sync-value" id="syncValue" value="0.0s">
       <button id="syncFwd">+0.5s</button>
       <button id="syncFwd1s">+1s</button>
     </div>

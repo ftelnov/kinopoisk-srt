@@ -41,7 +41,7 @@
     }
     if (resp.subtitleCount > 0) {
       setStatus(resp.subtitleCount + " cues loaded", "ok");
-      syncValue.textContent = (resp.offset / 1000).toFixed(1) + "s";
+      syncValue.value = (resp.offset / 1000).toFixed(1) + "s";
     } else {
       setStatus("Video found — load an SRT file", "ok");
     }
@@ -105,12 +105,55 @@
 
   // --- Sync controls ---
 
+  function updateSyncDisplay(offsetMs) {
+    syncValue.value = (offsetMs / 1000).toFixed(1) + "s";
+  }
+
   async function adjustSync(deltaMs) {
     const resp = await sendMsg({ action: "sync_offset", delta: deltaMs });
-    if (resp) {
-      syncValue.textContent = (resp.offset / 1000).toFixed(1) + "s";
+    if (resp) updateSyncDisplay(resp.offset);
+  }
+
+  async function setSync(absoluteMs) {
+    const resp = await sendMsg({ action: "set_sync", offset: absoluteMs });
+    if (resp) updateSyncDisplay(resp.offset);
+  }
+
+  // Parse user input like "1.5s", "-2s", "1.5", "-500ms", "0"
+  function parseSyncInput(raw) {
+    const s = raw.trim().toLowerCase();
+    if (s.endsWith("ms")) {
+      const n = parseFloat(s);
+      return isNaN(n) ? null : Math.round(n);
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? null : Math.round(n * 1000);
+  }
+
+  function commitSyncInput() {
+    const ms = parseSyncInput(syncValue.value);
+    if (ms !== null) {
+      setSync(ms);
+    } else {
+      // Revert to current value
+      sendMsg({ action: "get_status" }).then((resp) => {
+        if (resp) updateSyncDisplay(resp.offset);
+      });
     }
   }
+
+  syncValue.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitSyncInput();
+      syncValue.blur();
+    }
+  });
+
+  syncValue.addEventListener("blur", commitSyncInput);
+
+  // Select all text on focus for easy replacement
+  syncValue.addEventListener("focus", () => syncValue.select());
 
   document.getElementById("syncBack1s").addEventListener("click", () => adjustSync(-1000));
   document.getElementById("syncBack").addEventListener("click", () => adjustSync(-500));
@@ -136,6 +179,6 @@
     await sendMsg({ action: "clear_subs" });
     setStatus("Subtitles cleared", "warn");
     filenameEl.textContent = "";
-    syncValue.textContent = "0.0s";
+    syncValue.value = "0.0s";
   });
 })();
