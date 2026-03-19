@@ -1,0 +1,6 @@
+node_modules/
+.test-chrome-profile/
+test-screenshot-*.png
+*.zip
+dist/
+data/

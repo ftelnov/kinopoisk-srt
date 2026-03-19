@@ -1,0 +1,65 @@
+.kso-subtitle-overlay {
+  position: absolute;
+  bottom: 60px;
+  left: 0;
+  right: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  text-align: center;
+  padding: 0 10%;
+  transition: opacity 0.15s ease;
+}
+
+.kso-subtitle-text {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 2.2vw;
+  color: #fff;
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0    2px 4px rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  padding: 4px 12px;
+  line-height: 1.4;
+  max-width: 80%;
+  white-space: pre-wrap;
+}
+
+.kso-subtitle-text:empty {
+  display: none;
+}
+
+/* Fullscreen adjustments */
+:fullscreen .kso-subtitle-overlay,
+::backdrop .kso-subtitle-overlay {
+  bottom: 80px;
+}
+
+:fullscreen .kso-subtitle-text {
+  font-size: 2.8vw;
+}
+
+/* Drag handle for repositioning */
+.kso-drag-handle {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  cursor: grab;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.kso-subtitle-overlay:hover .kso-drag-handle {
+  opacity: 1;
+}

@@ -1,0 +1,13 @@
+{
+  "name": "kinopoisk-subtitles-overlay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension to overlay custom SRT subtitles on Kinopoisk HD",
+  "scripts": {
+    "test": "node test.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "puppeteer-core": "^24.40.0"
+  }
+}
